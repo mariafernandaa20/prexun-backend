@@ -78,10 +78,7 @@ class CashCutController extends Controller
             ->first();
 
         if (!$cashRegister) {
-            return response()->json(
-                ['message' => 'No hay registro de caja abierto en este campus'],
-                404
-            );
+            return response()->json(null);
         }
 
         $transactions = $cashRegister->transactions->map(function ($transaction) {
