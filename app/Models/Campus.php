@@ -20,6 +20,11 @@ class Campus extends Model
         'grupo_ids' 
     ];
 
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
     public function users()
     {
         return $this->belongsToMany(User::class, 'campus_user');

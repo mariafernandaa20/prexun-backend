@@ -137,6 +137,13 @@ class CashCutController extends Controller
         'next_day' => 'nullable',
     ]);
 
+    $campus = Campus::find($validated['campus_id']);
+    if (!$campus || !$campus->is_active) {
+        return response()->json([
+            'message' => 'No hay campus activo'
+        ], 422);
+    }
+
     // Validar que no haya otra caja abierta para este campus
     if ($validated['status'] === 'abierta') {
         $existingOpenCashRegister = CashRegister::getActiveByCampus($validated['campus_id']);
