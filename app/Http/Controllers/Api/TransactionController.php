@@ -28,6 +28,22 @@ class TransactionController extends Controller
     $payment_method = $request->query('payment_method');
     $card_id = $request->query('card_id');
     $folio = $request->query('folio');
+    $sortBy = $request->query('sort_by', 'folio');
+    $sortDirection = $request->query('sort_direction', 'desc');
+    $dateFrom = $request->query('date_from');
+    $dateTo = $request->query('date_to');
+    $groupByMonth = $request->query('group_by_month', false);
+
+    $allowedSorts = ['folio', 'created_at', 'payment_date'];
+    $allowedDirections = ['asc', 'desc'];
+    
+    if (!in_array($sortBy, $allowedSorts)) {
+      $sortBy = 'folio';
+    }
+    
+    if (!in_array($sortDirection, $allowedDirections)) {
+      $sortDirection = 'desc';
+    }
 
     $query = Transaction::with(['student', 'campus', 'student.grupo', 'card'])
       ->where('campus_id', $campus_id)
@@ -68,9 +84,28 @@ class TransactionController extends Controller
       $query->where('card_id', $card_id);
     }
 
-    $transactions = $query->orderBy('payment_date', 'desc')
-      ->orderBy('folio', 'desc')
-      ->paginate($perPage, ['*'], 'page', $page);
+    // Filtro por rango de fechas
+    if ($dateFrom) {
+      $query->whereDate('payment_date', '>=', $dateFrom);
+    }
+    
+    if ($dateTo) {
+      $query->whereDate('payment_date', '<=', $dateTo);
+    }
+
+    // Agrupación por mes si está habilitada
+    if ($groupByMonth) {
+      $query->selectRaw('*, YEAR(payment_date) as year, MONTH(payment_date) as month')
+            ->orderByRaw('YEAR(payment_date) ' . $sortDirection . ', MONTH(payment_date) ' . $sortDirection);
+    }
+
+    $query->orderBy($sortBy, $sortDirection);
+    
+    if ($sortBy !== 'folio') {
+      $query->orderBy('folio', 'desc');
+    }
+
+    $transactions = $query->paginate($perPage, ['*'], 'page', $page);
 
     $transactions->getCollection()->each(function ($transaction) {
       if ($transaction->image) {
@@ -78,7 +113,24 @@ class TransactionController extends Controller
       }
     });
 
-    return response()->json($transactions, 200);
+    $response = $transactions->toArray();
+
+    // Si está agrupado por mes, agregar información de agrupación
+    if ($groupByMonth) {
+      $grouped = $transactions->getCollection()->groupBy(function($transaction) {
+        return Carbon::parse($transaction->payment_date)->format('Y-m');
+      })->map(function($group) {
+        return [
+          'count' => $group->count(),
+          'total' => $group->sum('amount'),
+          'transactions' => $group->values()
+        ];
+      });
+      
+      $response['grouped_by_month'] = $grouped;
+    }
+
+    return response()->json($response, 200);
   }
 
 
@@ -93,6 +145,21 @@ class TransactionController extends Controller
     $payment_method = $request->query('payment_method');
     $card_id = $request->query('card_id');
     $folio = $request->query('folio');
+    $sortBy = $request->query('sort_by', 'expiration_date');
+    $sortDirection = $request->query('sort_direction', 'asc');
+    $dateFrom = $request->query('date_from');
+    $dateTo = $request->query('date_to');
+
+    $allowedSorts = ['folio', 'created_at', 'expiration_date'];
+    $allowedDirections = ['asc', 'desc'];
+    
+    if (!in_array($sortBy, $allowedSorts)) {
+      $sortBy = 'expiration_date';
+    }
+    
+    if (!in_array($sortDirection, $allowedDirections)) {
+      $sortDirection = 'asc';
+    }
 
     if (!$campus_id) {
       return response()->json(['error' => 'campus_id is required'], 400);
@@ -144,8 +211,22 @@ class TransactionController extends Controller
       $query->whereDate('expiration_date', $expiration_date);
     }
 
-    $charges = $query->orderBy('expiration_date', 'asc')
-      ->paginate($perPage, ['*'], 'page', $page);
+    // Filtro por rango de fechas
+    if ($dateFrom) {
+      $query->whereDate('created_at', '>=', $dateFrom);
+    }
+    
+    if ($dateTo) {
+      $query->whereDate('created_at', '<=', $dateTo);
+    }
+
+    $query->orderBy($sortBy, $sortDirection);
+    
+    if ($sortBy !== 'folio') {
+      $query->orderBy('folio', 'desc');
+    }
+
+    $charges = $query->paginate($perPage, ['*'], 'page', $page);
 
     $charges->getCollection()->transform(function ($charge) {
       if ($charge->image) {
