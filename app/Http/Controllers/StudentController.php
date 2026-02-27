@@ -35,6 +35,8 @@ class StudentController extends Controller
   {
     $bookDeliveryType = $request->get('book_delivery_type');
     $bookDelivered = $request->get('book_delivered');
+    $bookModulos = $request->get('book_modulos');
+    $bookGeneral = $request->get('book_general');
     $campus_id = $request->get('campus_id');
     $search = $request->get('search');
     $searchFirstname = $request->get('searchFirstname');
@@ -82,6 +84,18 @@ class StudentController extends Controller
       });
     }
 
+    if ($bookModulos) {
+      $query->whereHas('assignments', function ($q) use ($bookModulos) {
+        $q->where('book_modulos', $bookModulos);
+      });
+    }
+
+    if ($bookGeneral) {
+      $query->whereHas('assignments', function ($q) use ($bookGeneral) {
+        $q->where('book_general', $bookGeneral);
+      });
+    }
+
     if ($campus_id) {
       $query->where('campus_id', $campus_id);
     }
@@ -120,6 +134,90 @@ class StudentController extends Controller
       $query->whereDate('created_at', $searchDate);
     }
 
+    $tagFilter = $request->get('tag_ids');
+    if ($tagFilter === null) {
+      $tagFilter = $request->get('tag');
+    }
+    if ($tagFilter === null) {
+      $tagFilter = $request->get('tags');
+    }
+    if ($tagFilter === null) {
+      $tagFilter = $request->get('tag_id');
+    }
+    if ($tagFilter === null) {
+      $tagFilter = $request->get('tagIds');
+    }
+
+    $tagValues = [];
+    if (is_array($tagFilter)) {
+      $tagValues = $tagFilter;
+    } elseif (is_string($tagFilter)) {
+      $parts = array_map('trim', explode(',', $tagFilter));
+      $parts = array_values(array_filter($parts, fn($v) => $v !== ''));
+      $tagValues = count($parts) > 0 ? $parts : [$tagFilter];
+    } elseif ($tagFilter !== null) {
+      $tagValues = [$tagFilter];
+    }
+
+    $normalizedTagValues = [];
+    foreach ($tagValues as $value) {
+      if (is_array($value)) {
+        if (array_key_exists('id', $value)) {
+          $normalizedTagValues[] = $value['id'];
+          continue;
+        }
+        if (array_key_exists('value', $value)) {
+          $normalizedTagValues[] = $value['value'];
+          continue;
+        }
+        if (array_key_exists('name', $value)) {
+          $normalizedTagValues[] = $value['name'];
+          continue;
+        }
+        continue;
+      }
+      $normalizedTagValues[] = $value;
+    }
+
+    $tagIds = [];
+    $tagNames = [];
+    foreach ($normalizedTagValues as $value) {
+      if ($value === null) {
+        continue;
+      }
+      if (is_string($value)) {
+        $value = trim($value);
+      }
+      if ($value === '') {
+        continue;
+      }
+      if (is_numeric($value)) {
+        $tagIds[] = (int) $value;
+      } else {
+        $tagNames[] = (string) $value;
+      }
+    }
+
+    $tagIds = array_values(array_unique($tagIds));
+    $tagNames = array_values(array_unique($tagNames));
+
+    if (count($tagIds) > 0 || count($tagNames) > 0) {
+      $query->whereHas('tags', function ($q) use ($tagIds, $tagNames) {
+        $q->where(function ($inner) use ($tagIds, $tagNames) {
+          if (count($tagIds) > 0) {
+            $inner->whereIn('tags.id', $tagIds);
+          }
+          if (count($tagNames) > 0) {
+            if (count($tagIds) > 0) {
+              $inner->orWhereIn('tags.name', $tagNames);
+            } else {
+              $inner->whereIn('tags.name', $tagNames);
+            }
+          }
+        });
+      });
+    }
+
     // Only apply other filters if no specific search is being performed
     if (!$isSpecificSearch) {
       if ($period) {
@@ -137,8 +235,10 @@ class StudentController extends Controller
       }
 
       if ($assignedGrupo) {
-        $query->whereHas('assignments', function ($q) use ($assignedGrupo) {
-          $q->where('grupo_id', $assignedGrupo);
+        $groupIds = is_array($assignedGrupo) ? $assignedGrupo : explode(',', $assignedGrupo);
+
+        $query->whereHas('assignments', function ($q) use ($groupIds) {
+          $q->whereIn('grupo_id', (array) $groupIds);
         });
       }
 
@@ -205,7 +305,13 @@ class StudentController extends Controller
       Log::info('Moodle Response before validation', ['moodleResponse' => $moodleResponse]);
       if ($moodleResponse['status'] !== 'success' || !isset($moodleResponse['data'][0]['id'])) {
         Log::error('Validation failed', ['moodleResponse' => $moodleResponse]);
-        throw new \Exception('Invalid Moodle API response format');
+
+        $errorDetails = $moodleResponse['message'] ?? 'Error desconocido de Moodle';
+        if (isset($moodleResponse['code'])) {
+          $errorDetails .= ' (Código: ' . $moodleResponse['code'] . ')';
+        }
+
+        throw new \Exception('Error al crear usuario en Moodle: ' . $errorDetails);
       }
 
       $student->moodle_id = $moodleResponse['data'][0]['id'];
@@ -618,11 +724,11 @@ class StudentController extends Controller
   {
     $fileName = 'students.csv';
     $headers = [
-      "Content-type"        => "text/csv",
+      "Content-type" => "text/csv",
       "Content-Disposition" => "attachment; filename=$fileName",
-      "Pragma"              => "no-cache",
-      "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
-      "Expires"             => "0"
+      "Pragma" => "no-cache",
+      "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
+      "Expires" => "0"
     ];
 
     $columns = ['username', 'email', 'grupo'];
@@ -967,12 +1073,18 @@ class StudentController extends Controller
       "firstname" => strtoupper($student->firstname),
       "lastname" => strtoupper($student->lastname),
       "email" => $student->email,
-      "createpassword" => true,
+      "password" => "12345678",
       "auth" => "manual",
       "idnumber" => (string) $student->id,
       "lang" => "es_mx",
       "calendartype" => "gregorian",
-      "timezone" => "America/Mexico_City"
+      "timezone" => "America/Mexico_City",
+      "preferences" => [
+        [
+          "type" => "auth_forcepasswordchange",
+          "value" => "1"
+        ]
+      ]
     ];
   }
 
@@ -999,12 +1111,14 @@ class StudentController extends Controller
 
     if ($result['status'] === 'success') {
       $user = $result['data'];
-      $this->moodleService->users()->updateUser([[
-        "id" => $user['id'],
-        "email" => $student->email,
-        "firstname" => $student->firstname,
-        "lastname" => $student->lastname
-      ]]);
+      $this->moodleService->users()->updateUser([
+        [
+          "id" => $user['id'],
+          "email" => $student->email,
+          "firstname" => $student->firstname,
+          "lastname" => $student->lastname
+        ]
+      ]);
     }
 
     return $result;
@@ -1902,10 +2016,12 @@ class StudentController extends Controller
       }
 
       // Suspender/activar en Moodle
-      $moodleUsers = [[
-        'id' => $student->moodle_id,
-        'suspended' => $suspended
-      ]];
+      $moodleUsers = [
+        [
+          'id' => $student->moodle_id,
+          'suspended' => $suspended
+        ]
+      ];
 
       Log::info("Attempting to {$action} individual student in Moodle", [
         'student_id' => $id,
@@ -1968,6 +2084,58 @@ class StudentController extends Controller
 
       return response()->json([
         'message' => "Error al {$action} estudiante",
+        'error' => $e->getMessage()
+      ], 500);
+    }
+  }
+
+  /**
+   * Update student password in Moodle.
+   */
+  public function updatePassword(Request $request, $id)
+  {
+    $student = Student::findOrFail($id);
+
+    $validator = Validator::make($request->all(), [
+      'password' => 'required|string|min:6',
+    ]);
+
+    if ($validator->fails()) {
+      return response()->json(['errors' => $validator->errors()], 422);
+    }
+
+    try {
+      $this->ensureStudentHasMoodleId($student);
+
+      $moodleResponse = $this->moodleService->users()->updateUser([
+        [
+          'id' => $student->moodle_id,
+          'password' => $request->password
+        ]
+      ]);
+
+      if ($moodleResponse['status'] !== 'success') {
+        throw new \Exception($moodleResponse['message'] ?? 'Error updating password in Moodle');
+      }
+
+      // Log student update event
+      StudentEvent::createEvent(
+        $student->id,
+        StudentEvent::EVENT_UPDATED,
+        null,
+        null,
+        "Contraseña actualizada en Moodle"
+      );
+
+      return response()->json(['message' => 'Contraseña actualizada correctamente en Moodle']);
+    } catch (\Exception $e) {
+      Log::error('Error updating student password', [
+        'student_id' => $id,
+        'error' => $e->getMessage()
+      ]);
+
+      return response()->json([
+        'message' => 'Error al actualizar la contraseña',
         'error' => $e->getMessage()
       ], 500);
     }

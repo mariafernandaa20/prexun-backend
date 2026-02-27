@@ -7,6 +7,7 @@ use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Log;
 
 class CardController extends Controller
 {
@@ -16,10 +17,19 @@ class CardController extends Controller
     public function index(Request $request)
     {
         $campus_id = $request->get('campus_id');
+        $all = filter_var($request->get('all', false), FILTER_VALIDATE_BOOLEAN);
     
-        $cards = isset($campus_id) 
-            ? Card::where('campus_id', $campus_id)->get()
-            : Card::all(); 
+        $query = Card::query();
+    
+        if ($campus_id) {
+            $query->where('campus_id', $campus_id);
+        }
+    
+        if (!$all) {
+            $query->where('is_hidden', false);
+        }
+    
+        $cards = $query->get();
     
         return response()->json($cards);
     }
@@ -80,7 +90,7 @@ class CardController extends Controller
     public function update(Request $request, Card $card)
     {
         $validator = Validator::make($request->all(), [
-            'number' => 'required|string|unique:cards,number,' . $card->id,
+            'number' => 'sometimes|string|unique:cards,number,' . $card->id,
             'name' => 'required|string|max:255',
             'campus_id' => 'required|exists:campuses,id',
         ]);
@@ -135,6 +145,8 @@ class CardController extends Controller
      */
     public function apiUpdate(Request $request, Card $card)
     {
+
+        Log::info('Updating card: ', $request->all());
         $validator = Validator::make($request->all(), [
             'number' => 'required|string|unique:cards,number,' . $card->id,
             'name' => 'required|string|max:255',
@@ -146,6 +158,11 @@ class CardController extends Controller
         }
 
         $card->update($request->all());
+        
+        if ($request->has('is_hidden')) {
+            $card->is_hidden = filter_var($request->is_hidden, FILTER_VALIDATE_BOOLEAN);
+            $card->save();
+        }
         
         return response()->json(['message' => 'Card updated successfully', 'data' => $card], 200);
     }

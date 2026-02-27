@@ -5,7 +5,6 @@ namespace App\Services;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use App\Services\MCPServerService;
-use App\Services\GeminiService;
 
 /**
  * Service para manejar la integración entre la IA y las funciones MCP
@@ -14,14 +13,11 @@ use App\Services\GeminiService;
 class AIFunctionService
 {
     private MCPServerService $mcpServer;
-    private GeminiService $gemini;
     private string $openAIApiKey;
-    private string $aiProvider = 'gemini';
 
-    public function __construct(MCPServerService $mcpServer, GeminiService $gemini)
+    public function __construct(MCPServerService $mcpServer)
     {
         $this->mcpServer = $mcpServer;
-        $this->gemini = $gemini;
         $this->openAIApiKey = config('services.openai.api_key');
     }
 
@@ -48,15 +44,15 @@ class AIFunctionService
             // Paso 4: Preparar mensajes para OpenAI
             $messages = $this->prepareMessages($systemMessage, $conversationHistory, $incomingMessage);
 
-            // Paso 5: Llamar a IA con function calling
-            $response = $this->callAIWithFunctions($messages, $tools);
+            // Paso 5: Llamar a OpenAI con function calling
+            $response = $this->callOpenAIWithFunctions($messages, $tools);
 
             if (!$response['success']) {
                 return $response;
             }
 
             // Paso 6: Procesar respuesta y ejecutar funciones si es necesario
-            $processedResponse = $this->processAIResponse($response['data']);
+            $processedResponse = $this->processOpenAIResponse($response['data']);
 
             return [
                 'success' => true,
@@ -220,56 +216,6 @@ class AIFunctionService
     }
 
     /**
-     * Llamar a IA con function calling (delega según proveedor)
-     */
-    private function callAIWithFunctions(array $messages, array $tools): array
-    {
-        if ($this->aiProvider === 'gemini') {
-            return $this->callGeminiWithFunctions($messages, $tools);
-        }
-        
-        return $this->callOpenAIWithFunctions($messages, $tools);
-    }
-
-    /**
-     * Llamar a Gemini con function calling
-     */
-    private function callGeminiWithFunctions(array $messages, array $tools): array
-    {
-        try {
-            $response = $this->gemini->chatWithFunctionCalling(
-                $messages, 
-                $tools,
-                500,
-                0.7
-            );
-            
-            if (!$response['success']) {
-                return [
-                    'success' => false,
-                    'error' => $response['error'] ?? 'Error en Gemini API'
-                ];
-            }
-            
-            return [
-                'success' => true,
-                'data' => $response,
-                'tokens_used' => null
-            ];
-            
-        } catch (\Exception $e) {
-            Log::error('Error al conectar con Gemini para funciones', [
-                'error' => $e->getMessage()
-            ]);
-            
-            return [
-                'success' => false,
-                'error' => 'Error de conexión con Gemini'
-            ];
-        }
-    }
-
-    /**
      * Llamar a OpenAI con function calling
      */
     private function callOpenAIWithFunctions(array $messages, array $tools): array
@@ -331,64 +277,6 @@ class AIFunctionService
                 'error' => 'Error de conexión con OpenAI'
             ];
         }
-    }
-
-    /**
-     * Procesar respuesta de IA (delega según proveedor)
-     */
-    private function processAIResponse(array $aiResponse): array
-    {
-        if ($this->aiProvider === 'gemini') {
-            return $this->processGeminiResponse($aiResponse);
-        }
-        
-        return $this->processOpenAIResponse($aiResponse);
-    }
-
-    /**
-     * Procesar respuesta de Gemini y ejecutar funciones si es necesario
-     */
-    private function processGeminiResponse(array $geminiResponse): array
-    {
-        $functionsExecuted = [];
-        $finalMessage = '';
-        
-        if (isset($geminiResponse['function_calls']) && !empty($geminiResponse['function_calls'])) {
-            foreach ($geminiResponse['function_calls'] as $functionCall) {
-                $functionName = $functionCall['name'];
-                $functionArgs = $functionCall['args'];
-                
-                Log::info('Ejecutando función MCP solicitada por Gemini', [
-                    'function' => $functionName,
-                    'arguments' => $functionArgs
-                ]);
-                
-                $functionResult = $this->mcpServer->executeFunction($functionName, $functionArgs);
-                
-                $functionsExecuted[] = [
-                    'function' => $functionName,
-                    'arguments' => $functionArgs,
-                    'result' => $functionResult
-                ];
-            }
-            
-            if (!empty($functionsExecuted)) {
-                $lastResult = end($functionsExecuted)['result'];
-                $finalMessage = is_string($lastResult) ? $lastResult : json_encode($lastResult);
-            }
-        }
-        
-        if (empty($finalMessage)) {
-            $finalMessage = $geminiResponse['text'] ?? $geminiResponse['message'] ?? 'No se pudo generar respuesta';
-        }
-        
-        $formattedMessage = $this->formatForWhatsApp($finalMessage);
-        
-        return [
-            'final_message' => $formattedMessage,
-            'functions_executed' => $functionsExecuted,
-            'all_messages' => []
-        ];
     }
 
     /**
@@ -590,50 +478,6 @@ class AIFunctionService
                 'success' => false,
                 'error' => 'Error interno: ' . $e->getMessage()
             ];
-        }
-    }
-
-    public function setAIProvider(string $provider): void
-    {
-        if (!in_array($provider, ['gemini', 'openai'])) {
-            throw new \InvalidArgumentException("Proveedor no válido: {$provider}");
-        }
-        
-        $this->aiProvider = $provider;
-    }
-
-    public function getAIProvider(): string
-    {
-        return $this->aiProvider;
-    }
-
-    public function processWithOpenAI(string $phoneNumber, string $incomingMessage, array $conversationHistory = []): array
-    {
-        $originalProvider = $this->aiProvider;
-        $this->setAIProvider('openai');
-        
-        try {
-            $result = $this->processWhatsAppMessage($phoneNumber, $incomingMessage, $conversationHistory);
-            $this->aiProvider = $originalProvider;
-            return $result;
-        } catch (\Exception $e) {
-            $this->aiProvider = $originalProvider;
-            throw $e;
-        }
-    }
-
-    public function processWithGemini(string $phoneNumber, string $incomingMessage, array $conversationHistory = []): array
-    {
-        $originalProvider = $this->aiProvider;
-        $this->setAIProvider('gemini');
-        
-        try {
-            $result = $this->processWhatsAppMessage($phoneNumber, $incomingMessage, $conversationHistory);
-            $this->aiProvider = $originalProvider;
-            return $result;
-        } catch (\Exception $e) {
-            $this->aiProvider = $originalProvider;
-            throw $e;
         }
     }
 }

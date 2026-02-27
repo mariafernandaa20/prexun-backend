@@ -177,8 +177,12 @@ class CashCutController extends Controller
 
     $initialAmountCash = json_encode($validated['initial_amount_cash']);
 
+    $consecutivo = CashRegister::where('campus_id', $validated['campus_id'])
+        ->max('consecutivo') + 1;
+
     $cashRegister = CashRegister::create([
         'campus_id' => $validated['campus_id'],
+        'consecutivo' => $consecutivo,
         'initial_amount' => $validated['initial_amount'],
         'initial_amount_cash' => $initialAmountCash,
         'notes' => $validated['notes'] ?? null,

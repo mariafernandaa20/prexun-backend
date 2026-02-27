@@ -16,7 +16,7 @@ class TeacherAttendanceController extends Controller
   {
     try {
       DB::beginTransaction();
-      
+
       // Procesar la fecha antes de la validación
       $dateInput = $request->date;
       $originalDate = $dateInput; // Guardar fecha original para logs
@@ -31,7 +31,7 @@ class TeacherAttendanceController extends Controller
             // Intentar diferentes formatos españoles
             $formats = ['d/m/Y', 'j/n/Y', 'd/n/Y', 'j/m/Y'];
             $parsed = false;
-            
+
             foreach ($formats as $format) {
               try {
                 $dateInput = Carbon::createFromFormat($format, $dateInput)->format('Y-m-d');
@@ -41,7 +41,7 @@ class TeacherAttendanceController extends Controller
                 continue;
               }
             }
-            
+
             if (!$parsed) {
               throw new \Exception("No se pudo convertir la fecha: {$dateInput}");
             }
@@ -59,20 +59,20 @@ class TeacherAttendanceController extends Controller
           else {
             $dateInput = Carbon::parse($dateInput)->format('Y-m-d');
           }
-          
+
           $request->merge(['date' => $dateInput]);
-          
+
           Log::info('Fecha procesada exitosamente:', [
             'fecha_original' => $originalDate,
             'fecha_procesada' => $dateInput
           ]);
-          
+
         } catch (\Exception $dateError) {
           Log::error('Error al procesar fecha:', [
             'fecha_original' => $originalDate,
             'error' => $dateError->getMessage()
           ]);
-          
+
           return response()->json([
             'success' => false,
             'message' => 'Formato de fecha inválido. Formatos aceptados: YYYY-MM-DD, DD/MM/YYYY, D/M/YYYY.',
@@ -81,7 +81,7 @@ class TeacherAttendanceController extends Controller
           ], 422);
         }
       }
-      
+
       $validatedData = $request->validate([
         'grupo_id' => 'required|exists:grupos,id',
         'date' => 'required|date_format:Y-m-d',
@@ -114,7 +114,7 @@ class TeacherAttendanceController extends Controller
             'fecha' => $request->date,
             'presente_existente' => $existingAttendance->present
           ]);
-          
+
           $attendanceCount++;
           $alreadyExistsCount++;
           if ($existingAttendance->present) {
@@ -197,9 +197,10 @@ class TeacherAttendanceController extends Controller
     }
   }
 
-  public function getAttendance($grupo_id, $date)
+  public function getAttendance(Request $request, $grupo_id, $date)
   {
     try {
+      $plantelId = $request->query('plantel_id');
       // Procesar el formato de fecha
       try {
         if (strpos($date, 'T') !== false) {
@@ -208,7 +209,7 @@ class TeacherAttendanceController extends Controller
           // Intentar diferentes formatos españoles
           $formats = ['d/m/Y', 'j/n/Y', 'd/n/Y', 'j/m/Y'];
           $parsed = false;
-          
+
           foreach ($formats as $format) {
             try {
               $date = Carbon::createFromFormat($format, $date)->format('Y-m-d');
@@ -218,7 +219,7 @@ class TeacherAttendanceController extends Controller
               continue;
             }
           }
-          
+
           if (!$parsed) {
             throw new \Exception("No se pudo convertir la fecha: {$date}");
           }
@@ -230,18 +231,25 @@ class TeacherAttendanceController extends Controller
           'fecha_original' => $date,
           'error' => $dateError->getMessage()
         ]);
-        
+
         return response()->json([
           'success' => false,
           'message' => 'Formato de fecha inválido en consulta.',
           'fecha_recibida' => $date
         ], 422);
       }
-      
-      $attendance = Attendance::with('student')
+
+      $query = Attendance::with('student')
         ->where('grupo_id', $grupo_id)
-        ->where('date', $date)
-        ->get();
+        ->where('date', $date);
+
+      if ($plantelId) {
+        $query->whereHas('student', function ($q) use ($plantelId) {
+          $q->where('campus_id', $plantelId);
+        });
+      }
+
+      $attendance = $query->get();
 
       return response()->json([
         'success' => true,
@@ -261,9 +269,18 @@ class TeacherAttendanceController extends Controller
     }
   }
 
-  public function findStudent(Student $student)
+  public function findStudent(Request $request, Student $student)
   {
-    Log::info("Buscando estudiante con ID o matrícula: {$student->id}");
+    $plantelId = $request->query('plantel_id');
+
+    Log::info("Buscando estudiante con ID o matrícula: {$student->id}" . ($plantelId ? " filtrado por plantel " . $plantelId : ""));
+
+    if ($plantelId && $student->campus_id != $plantelId) {
+      return response()->json([
+        'success' => false,
+        'message' => 'Estudiante no pertenece a este plantel'
+      ], 404);
+    }
 
     $student->load([
       'assignments.grupo',
@@ -290,7 +307,7 @@ class TeacherAttendanceController extends Controller
             // Intentar diferentes formatos españoles
             $formats = ['d/m/Y', 'j/n/Y', 'd/n/Y', 'j/m/Y'];
             $parsed = false;
-            
+
             foreach ($formats as $format) {
               try {
                 $dateInput = Carbon::createFromFormat($format, $dateInput)->format('Y-m-d');
@@ -300,7 +317,7 @@ class TeacherAttendanceController extends Controller
                 continue;
               }
             }
-            
+
             if (!$parsed) {
               throw new \Exception("No se pudo convertir la fecha: {$dateInput}");
             }
@@ -315,18 +332,18 @@ class TeacherAttendanceController extends Controller
             $dateInput = Carbon::parse($dateInput)->format('Y-m-d');
           }
           $request->merge(['date' => $dateInput]);
-          
+
           Log::info('Fecha procesada en quickStore:', [
             'fecha_original' => $originalDate,
             'fecha_procesada' => $dateInput
           ]);
-          
+
         } catch (\Exception $dateError) {
           Log::error('Error al procesar fecha en quickStore:', [
             'fecha_original' => $originalDate,
             'error' => $dateError->getMessage()
           ]);
-          
+
           return response()->json([
             'success' => false,
             'message' => 'Formato de fecha inválido: ' . $dateError->getMessage(),
@@ -358,15 +375,15 @@ class TeacherAttendanceController extends Controller
         ->where('grupo_id', $grupo_id)
         ->where('date', $date)
         ->first();
-     //si el estudiante esta marcado como falta y marca asistencia, se actualiza la asistencia existente
+      //si el estudiante esta marcado como falta y marca asistencia, se actualiza la asistencia existente
       if ($existingAttendance) {
-    
+
         if (!$existingAttendance->present && $validated['present']) {
           $existingAttendance->update([
             'present' => true,
             'attendance_time' => $validated['attendance_time'] ?? now(),
           ]);
-          
+
           Log::info('Asistencia actualizada de ausente a presente', [
             'attendance_id' => $existingAttendance->id,
             'student_id' => $validated['student_id'],
@@ -384,7 +401,7 @@ class TeacherAttendanceController extends Controller
             'updated_from_absent' => true
           ]);
         }
-        
+
         // Si ya existe y no necesita actualización
         Log::info('Asistencia ya registrada previamente', [
           'attendance_id' => $existingAttendance->id,
@@ -484,15 +501,22 @@ class TeacherAttendanceController extends Controller
     }
   }
 
-  public function getTodayAttendance($date)
+  public function getTodayAttendance(Request $request, $date)
   {
-
-    Log::info("Obteniendo asistencias para la fecha " . $date);
+    $plantelId = $request->query('plantel_id');
+    Log::info("Obteniendo asistencias para la fecha " . $date . ($plantelId ? " filtrado por plantel " . $plantelId : ""));
     try {
-      $attendance = Attendance::with(['student', 'grupo'])
+      $query = Attendance::with(['student', 'grupo'])
         ->where('date', $date)
-        ->orderBy('updated_at', 'desc')
-        ->get();
+        ->orderBy('updated_at', 'desc');
+
+      if ($plantelId) {
+        $query->whereHas('student', function ($q) use ($plantelId) {
+          $q->where('campus_id', $plantelId);
+        });
+      }
+
+      $attendance = $query->get();
 
       return response()->json([
         'success' => true,
@@ -518,7 +542,7 @@ class TeacherAttendanceController extends Controller
    */
   public function getStudentAttendanceReport($studentID, Request $request)
   {
-    
+
     $student = Student::with(['grupo.period'])->find($studentID);
 
     try {
@@ -593,7 +617,17 @@ class TeacherAttendanceController extends Controller
         'exclude_weekends' => 'boolean',
       ]);
 
-      $grupo = \App\Models\Grupo::with(['students', 'period'])->findOrFail($groupId);
+      $plantelId = $request->query('plantel_id');
+
+      $grupo = \App\Models\Grupo::with([
+        'students' => function ($query) use ($plantelId) {
+          if ($plantelId) {
+            $query->where('campus_id', $plantelId);
+          }
+        },
+        'period'
+      ])->findOrFail($groupId);
+
       $excludeWeekends = $request->exclude_weekends ?? true;
 
       $studentsReports = [];
@@ -604,6 +638,7 @@ class TeacherAttendanceController extends Controller
           'start_date' => $request->start_date,
           'end_date' => $request->end_date,
           'exclude_weekends' => $excludeWeekends,
+          'plantel_id' => $plantelId, // Pasar también el plantel_id
         ]);
 
         $studentReportResponse = $this->getStudentAttendanceReport($student->id, $studentRequest);

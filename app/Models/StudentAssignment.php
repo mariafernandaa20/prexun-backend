@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class StudentAssignment extends Model
 {
     use SoftDeletes;
-    
+
     protected $table = 'student_assignments';
 
     protected $fillable = [
@@ -21,10 +21,10 @@ class StudentAssignment extends Model
         'is_active',
         'carrer_id',
         'notes',
-           'book_delivered',
-           'book_delivery_type',
-           'book_delivery_date',
-           'book_notes',
+        'book_delivered',
+        'book_delivery_type',
+        'book_delivery_date',
+        'book_notes',
         'book_modulos',
         'book_general',
     ];
@@ -33,11 +33,75 @@ class StudentAssignment extends Model
         'assigned_at' => 'date',
         'valid_until' => 'date',
         'is_active' => 'boolean',
-           'book_delivered' => 'boolean',
-           'book_delivery_date' => 'date',
-              'book_modulos' => 'string',
+        'book_delivered' => 'boolean',
+        'book_delivery_date' => 'date',
+        'book_modulos' => 'string',
+        'book_general' => 'string',
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::created(function ($assignment) {
+            \App\Models\StudentEvent::createEvent(
+                $assignment->student_id,
+                'assignment_created',
+                null,
+                $assignment->toArray(),
+                "Nueva asignación de carrera/grupo añadida por: " . (auth()->user()?->name ?? 'Sistema')
+            );
+        });
+
+        static::deleted(function ($assignment) {
+            \App\Models\StudentEvent::createEvent(
+                $assignment->student_id,
+                'assignment_deleted',
+                $assignment->toArray(),
+                null,
+                "Asignación de carrera/grupo eliminada por: " . auth()->user()->name,
+                null,
+                ['datos_eliminados' => $assignment->toArray()]
+            );
+        });
+
+        static::updated(function ($assignment) {
+            $original = $assignment->getOriginal();
+            $changes = $assignment->getDirty();
+            $user = auth()->user()?->name ?? 'Sistema';
+
+            $descriptions = [];
+            if (isset($changes['carrer_id'])) {
+                $descriptions[] = "cambió de carrera";
+            }
+            if (isset($changes['grupo_id'])) {
+                $descriptions[] = "cambió de grupo";
+            }
+            if (isset($changes['semana_intensiva_id'])) {
+                $descriptions[] = "cambió de semana intensiva";
+            }
+            if (isset($changes['is_active'])) {
+                $status = $changes['is_active'] ? 'activó' : 'desactivó';
+                $descriptions[] = "$status la asignación";
+            }
+
+            if (empty($descriptions)) {
+                $descriptions[] = "actualizó la asignación (" . implode(', ', array_keys($changes)) . ")";
+            }
+
+            $finalDesc = "Asignación de carrera/grupo: " . implode(', ', $descriptions) . " por $user";
+
+            \App\Models\StudentEvent::createEvent(
+                $assignment->student_id,
+                'assignment_updated',
+                $original,
+                $changes,
+                $finalDesc,
+                array_keys($changes),
+                ['datos_cambiados' => $changes]
+            );
+        });
+    }
     /**
      * Get the student that this assignment belongs to.
      */
@@ -93,7 +157,7 @@ class StudentAssignment extends Model
     {
         return $query->where(function ($query) {
             $query->whereNull('valid_until')
-                  ->orWhere('valid_until', '>=', now());
+                ->orWhere('valid_until', '>=', now());
         });
     }
 }

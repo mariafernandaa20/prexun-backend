@@ -82,17 +82,19 @@ class GrupoController extends Controller
         $cohortName = $period->name . $grupo->name;
 
         $cohortData = [
-          'cohorts' => [[
-            'name' => $cohortName,
-            'idnumber' => 'G' . $grupo->id,
-            'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
-            'descriptionformat' => 1,
-            'visible' => 1,
-            'categorytype' => [
-              'type' => 'system',
-              'value' => ''
+          'cohorts' => [
+            [
+              'name' => $cohortName,
+              'idnumber' => 'G' . $grupo->id,
+              'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
+              'descriptionformat' => 1,
+              'visible' => 1,
+              'categorytype' => [
+                'type' => 'system',
+                'value' => ''
+              ]
             ]
-          ]]
+          ]
         ];
 
         $response = $this->moodleService->createCohorts($cohortData);
@@ -138,25 +140,30 @@ class GrupoController extends Controller
     return response()->json($grupo);
   }
 
-  public function getStudents($id)
+  public function getStudents(Request $request, $id)
   {
-    $grupo = Grupo::with([
-      'activeAssignments.student.carrera',
-      'activeAssignments.student.period',
-      'students.carrera',
-      'students.period'
-    ])->findOrFail($id);
-    
-    // Primero intentar obtener estudiantes a través de asignaciones activas
-    $studentsFromAssignments = $grupo->activeAssignments->map(function ($assignment) {
-      return $assignment->student;
-    });
-    
-    // Si no hay estudiantes de asignaciones, buscar por grupo_id directo
-    if ($studentsFromAssignments->isEmpty()) {
-      return response()->json($grupo->students);
+    $plantelId = $request->query('plantel_id');
+
+    $grupo = Grupo::findOrFail($id);
+
+    $assignmentsQuery = $grupo->studentAssignments()
+      ->active()
+      ->with(['student.carrera', 'student.period']);
+
+    if ($plantelId) {
+      $assignmentsQuery->whereHas('student', function ($q) use ($plantelId) {
+        $q->where('campus_id', $plantelId);
+      });
     }
-    
+
+    $studentsFromAssignments = $assignmentsQuery->get()
+      ->map(function ($assignment) {
+        return $assignment->student;
+      })
+      ->filter()
+      ->unique('id')
+      ->values();
+
     return response()->json($studentsFromAssignments);
   }
 
@@ -208,14 +215,16 @@ class GrupoController extends Controller
 
           // Actualizar el cohort en Moodle
           $cohortData = [
-            'cohorts' => [[
-              'id' => $grupo->moodle_id,
-              'name' => $cohortName,
-              'idnumber' => 'G' . $grupo->id,
-              'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
-              'descriptionformat' => 1,
-              'visible' => 1
-            ]]
+            'cohorts' => [
+              [
+                'id' => $grupo->moodle_id,
+                'name' => $cohortName,
+                'idnumber' => 'G' . $grupo->id,
+                'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
+                'descriptionformat' => 1,
+                'visible' => 1
+              ]
+            ]
           ];
 
           $response = $this->moodleService->updateCohorts($cohortData);
@@ -249,17 +258,19 @@ class GrupoController extends Controller
           $cohortName = $period->name . $grupo->name;
 
           $cohortData = [
-            'cohorts' => [[
-              'name' => $cohortName,
-              'idnumber' => 'G' . $grupo->id,
-              'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
-              'descriptionformat' => 1,
-              'visible' => 1,
-              'categorytype' => [
-                'type' => 'system',
-                'value' => ''
+            'cohorts' => [
+              [
+                'name' => $cohortName,
+                'idnumber' => 'G' . $grupo->id,
+                'description' => 'Grupo ' . $grupo->name . ' del periodo ' . $period->name,
+                'descriptionformat' => 1,
+                'visible' => 1,
+                'categorytype' => [
+                  'type' => 'system',
+                  'value' => ''
+                ]
               ]
-            ]]
+            ]
           ];
 
           $response = $this->moodleService->createCohorts($cohortData);
@@ -297,7 +308,7 @@ class GrupoController extends Controller
   public function destroy($id)
   {
     $grupo = Grupo::findOrFail($id);
-    
+
     // Eliminar cohort en Moodle si existe
     if ($grupo->moodle_id) {
       try {

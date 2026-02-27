@@ -13,9 +13,9 @@ abstract class BaseMoodleService
 
     public function __construct()
     {
-        $this->client = new Client(['http_errors' => false]);
-        $this->token = env('MOODLE_TOKEN', 'test_token');
-        $this->url = env('MOODLE_URL', 'https://test.moodle.com/webservice/rest/server.php');
+        $this->client = new Client(['http_errors' => false]); 
+        $this->token = config('moodle.token');
+        $this->url = config('moodle.url');
     }
 
     /**
@@ -48,10 +48,17 @@ abstract class BaseMoodleService
             // Verificar si hay errores en la respuesta
             if ($statusCode !== 200 || isset($body['exception']) || isset($body['errorcode'])) {
                 Log::error("Moodle API error", ['status' => $statusCode, 'response' => $body]);
+                
+                $errorMessage = $body['message'] ?? 'Error desconocido';
+                if (isset($body['debuginfo'])) {
+                    $errorMessage .= ' - ' . $body['debuginfo'];
+                }
+                
                 return [
                     'status' => 'error',
-                    'message' => $body['message'] ?? 'Error desconocido',
-                    'code' => $body['errorcode'] ?? $statusCode
+                    'message' => $errorMessage,
+                    'code' => $body['errorcode'] ?? $statusCode,
+                    'debuginfo' => $body['debuginfo'] ?? null
                 ];
             }
 

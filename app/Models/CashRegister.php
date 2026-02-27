@@ -18,6 +18,7 @@ class CashRegister extends Model
         'opened_at',
         'closed_at',
         'campus_id',
+        'consecutivo',
         'notes',
         'status',
     ];

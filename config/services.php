@@ -39,6 +39,10 @@ return [
         'api_key' => env('OPENAI_API_KEY'),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
         'phone_number_id' => env('PHONE_NUMBER_ID'),

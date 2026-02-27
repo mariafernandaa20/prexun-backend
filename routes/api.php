@@ -41,6 +41,10 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\MensajeController;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\ChecadorController;
+use App\Http\Controllers\Api\NominaAdminController;
+use App\Http\Controllers\Api\NominaUserController;
+use App\Http\Controllers\Api\NominaPublicController;
+use App\Http\Controllers\Api\NotificationController;
 
 Route::get('/test', function () {
   return response()->json(['message' => 'Hello, world!']);
@@ -69,6 +73,14 @@ Route::prefix('public/gastos')->group(function () {
   Route::get('/{id}/info', [GastoController::class, 'getPublicInfo']);
   Route::post('/{id}/sign', [GastoController::class, 'signExternally']);
   Route::get('/{id}/signature-status', [GastoController::class, 'getPublicSignatureStatus']);
+});
+
+// Ruta pública para registro de asistencia por teléfono
+Route::post('/public/asistencia/registrar', [App\Http\Controllers\Api\PublicAttendanceController::class, 'registerByPhone']);
+Route::prefix('public/nominas')->group(function () {
+  Route::get('/{token}/info', [NominaPublicController::class, 'getInfo']);
+  Route::post('/{token}/sign', [NominaPublicController::class, 'sign']);
+  Route::get('/{token}/view', [NominaPublicController::class, 'view']);
 });
 
 // WhatsApp routes
@@ -137,7 +149,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
   //mensajes
   Route::post('/mensajes', [MensajeController::class, 'guardarmensaje']);
-  Route::get('/mensajes', [MensajeController::class, 'index']); // NUEVA
+  Route::get('/mensajes', [MensajeController::class, 'index']);
+  Route::delete('/mensajes', [MensajeController::class, 'destroy']);
 
 
   // Add admin
@@ -165,6 +178,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
   Route::post('/students/restore/{id}', [StudentController::class, 'restore']);
   Route::patch('/students/hard-update', [StudentController::class, 'hardUpdate']);
   Route::put('/students/{id}/suspend', [StudentController::class, 'suspendStudent']);
+  Route::put('/students/{id}/password', [StudentController::class, 'updatePassword']);
   Route::post('/students/{id}/tags', [StudentController::class, 'attachTags']);
   Route::delete('/students/{studentId}/tags/{tagId}', [StudentController::class, 'detachTag']);
   Route::get('/students/{id}/tags', [StudentController::class, 'getTags']);
@@ -222,6 +236,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
   Route::get('/charges/{campus_id}', [TransactionController::class, 'index']);
   Route::post('/charges', [TransactionController::class, 'store']);
   Route::put('/charges/{id}', [TransactionController::class, 'update']);
+  Route::delete('/charges/{id}/image', [TransactionController::class, 'destroyImage']);
   Route::delete('/charges/{id}', [TransactionController::class, 'destroy']);
   Route::post('/charges/import-folios', [TransactionController::class, 'importFolios']);
   Route::put('/charges/{id}/update-folio', [TransactionController::class, 'updateFolio']);
@@ -439,4 +454,31 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/chat/send', [App\Http\Controllers\Api\WhatsAppChatController::class, 'sendMessage']);
     Route::delete('/chat/history/{phoneNumber}', [App\Http\Controllers\Api\WhatsAppChatController::class, 'clearHistory']);
   });
+
+  // Nominas
+  Route::prefix('nominas')->group(function () {
+    // Admin
+    Route::middleware(['role:contador'])->group(function () {
+      Route::get('/admin', [NominaAdminController::class, 'index']);
+      Route::get('/admin/users', [NominaAdminController::class, 'getActiveUsers']);
+      Route::post('/admin/upload', [NominaAdminController::class, 'store']);
+      Route::post('/admin/upload-to-user', [NominaAdminController::class, 'uploadToUser']);
+      Route::get('/admin/seccion/{seccion}', [NominaAdminController::class, 'showSeccion']);
+      Route::get('/admin/nomina/{nomina}', [NominaAdminController::class, 'showNomina']);
+      Route::delete('/admin/nomina/{nomina}', [NominaAdminController::class, 'destroy']);
+    });
+
+    // User
+    Route::get('/user', [NominaUserController::class, 'index']);
+    Route::post('/user/{nomina}/sign', [NominaUserController::class, 'sign']);
+    Route::get('/user/{nomina}/view', [NominaUserController::class, 'show']);
+  });
+
+  // Notificaciones
+  Route::prefix('notifications')->group(function () {
+    Route::get('/', [NotificationController::class, 'index']);
+    Route::post('/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+  });
 });
+

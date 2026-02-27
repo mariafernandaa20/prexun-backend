@@ -11,14 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('contexts', function (Blueprint $table) {
+        Schema::create('notifications', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->unique();
-            $table->text('instructions');
-            $table->boolean('is_active')->default(true);
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->string('title');
+            $table->text('message')->nullable();
+            $table->string('path')->nullable();
+            $table->boolean('is_read')->default(false);
             $table->timestamps();
-            
-            $table->index(['is_active']);
         });
     }
 
@@ -27,6 +27,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('contexts');
+        Schema::dropIfExists('notifications');
     }
 };

@@ -26,7 +26,18 @@ class Card extends Model
         'name',
         'clabe',
         'sat',
+        'is_hidden',
         'campus_id',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array
+     */
+    protected $casts = [
+        'sat' => 'boolean',
+        'is_hidden' => 'boolean',
     ];
 
     /**

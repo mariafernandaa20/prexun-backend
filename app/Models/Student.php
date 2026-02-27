@@ -24,17 +24,41 @@ class Student extends Model
             );
         });
 
+
         static::updating(function ($student) {
             $original = $student->getOriginal();
-            $changes = array_keys($student->getDirty());
-            \App\Models\StudentEvent::createEvent(
-                $student->id,
-                \App\Models\StudentEvent::EVENT_UPDATED,
-                $original,
-                $student->getDirty(),
-                'Estudiante actualizado',
-                $changes
-            );
+            $changes = $student->getDirty();
+            $user = auth()->user()?->name ?? 'Sistema';
+
+            $descriptions = [];
+            if (isset($changes['password'])) {
+                $descriptions[] = "cambió la contraseña";
+            }
+            if (isset($changes['email'])) {
+                $descriptions[] = "cambió el correo de " . ($original['email'] ?? 'N/A') . " a " . $changes['email'];
+            }
+            if (isset($changes['firstname']) || isset($changes['lastname'])) {
+                $descriptions[] = "editó el nombre del alumno (" . ($original['firstname'] ?? '') . " " . ($original['lastname'] ?? '') . " -> " . ($student->firstname ?? '') . " " . ($student->lastname ?? '') . ")";
+            }
+
+            $personalFields = ['phone', 'tutor_name', 'tutor_phone', 'tutor_relationship', 'health_conditions'];
+            foreach ($personalFields as $field) {
+                if (isset($changes[$field])) {
+                    $descriptions[] = "actualizó información personal ($field)";
+                }
+            }
+
+            if (!empty($descriptions)) {
+                $finalDesc = "El usuario $user: " . implode(', ', $descriptions);
+                \App\Models\StudentEvent::createEvent(
+                    $student->id,
+                    'info_updated',
+                    $original,
+                    $student->getDirty(),
+                    $finalDesc,
+                    array_keys($changes)
+                );
+            }
         });
 
         static::deleted(function ($student) {

@@ -156,7 +156,7 @@ class StudentAssignmentController extends Controller
             'is_active' => 'sometimes|boolean',
             'notes' => 'nullable|string|max:1000',
             'book_delivered' => 'boolean',
-            'book_delivery_type' => 'nullable|',
+            'book_delivery_type' => 'nullable|in:digital,fisico,paqueteria',
             'book_delivery_date' => 'nullable|date',
             'book_notes' => 'nullable|string|max:1000',
             'book_modulos' => 'nullable|in:no entregado,paqueteria,en fisico,digital',
@@ -181,7 +181,7 @@ class StudentAssignmentController extends Controller
         $newGrupoId = $assignment->grupo_id;
         $newSemanaIntensivaId = $assignment->semana_intensiva_id;
         $newCarrerId = $assignment->carrer_id;
-        
+
         if ($oldGrupoId !== $newGrupoId || $oldSemanaIntensivaId !== $newSemanaIntensivaId || $oldCarrerId !== $newCarrerId) {
             $this->updateMoodleCohorts($assignment, $oldGrupoId, $newGrupoId, $oldSemanaIntensivaId, $newSemanaIntensivaId, $oldCarrerId, $newCarrerId);
         }
@@ -197,10 +197,10 @@ class StudentAssignmentController extends Controller
     public function destroy($id)
     {
         $assignment = StudentAssignment::findOrFail($id);
-        
+
         // Remove student from all associated cohorts in Moodle before deleting
         $this->removeAssignmentFromMoodle($assignment);
-        
+
         $assignment->delete();
 
         return response()->json([
@@ -277,6 +277,7 @@ class StudentAssignmentController extends Controller
             'assignments.*.is_active' => 'boolean',
             'assignments.*.notes' => 'nullable|string|max:1000',
             'assignments.*.book_modulos' => 'nullable|in:no entregado,paqueteria,en fisico,digital',
+            'assignments.*.book_general' => 'nullable|in:no entregado,paqueteria,en fisico,digital',
         ]);
 
         if ($validator->fails()) {
@@ -292,10 +293,10 @@ class StudentAssignmentController extends Controller
         foreach ($request->assignments as $assignmentData) {
             $assignmentData['assigned_at'] = $assignmentData['assigned_at'] ?? $now;
             $assignmentData['is_active'] = $assignmentData['is_active'] ?? true;
-            
+
             $assignment = StudentAssignment::create($assignmentData);
             $assignments[] = $assignment->load(['student', 'period', 'grupo', 'semanaIntensiva', 'carrera']);
-            
+
             // Sync with Moodle
             $this->syncAssignmentWithMoodle($assignment);
         }
@@ -323,6 +324,7 @@ class StudentAssignmentController extends Controller
             'updates.is_active' => 'sometimes|boolean',
             'updates.notes' => 'nullable|string|max:1000',
             'updates.book_modulos' => 'nullable|in:no entregado,paqueteria,en fisico,digital',
+            'updates.book_general' => 'nullable|in:no entregado,paqueteria,en fisico,digital',
         ]);
 
         if ($validator->fails()) {
@@ -431,7 +433,7 @@ class StudentAssignmentController extends Controller
         $query = Student::with(['period', 'transactions', 'municipio', 'prepa', 'facultad', 'carrera', 'grupo'])
             ->whereHas('assignments', function ($q) use ($periodId) {
                 $q->where('period_id', $periodId)
-                  ->where('is_active', true);
+                    ->where('is_active', true);
             });
 
         // Apply campus filter
@@ -464,11 +466,11 @@ class StudentAssignmentController extends Controller
         if ($grupo) {
             $query->where(function ($q) use ($grupo, $periodId) {
                 $q->where('grupo_id', $grupo)
-                  ->orWhereHas('assignments', function ($subQ) use ($grupo, $periodId) {
-                      $subQ->where('grupo_id', $grupo)
-                           ->where('period_id', $periodId)
-                           ->where('is_active', true);
-                  });
+                    ->orWhereHas('assignments', function ($subQ) use ($grupo, $periodId) {
+                        $subQ->where('grupo_id', $grupo)
+                            ->where('period_id', $periodId)
+                            ->where('is_active', true);
+                    });
             });
         }
 
@@ -476,11 +478,11 @@ class StudentAssignmentController extends Controller
         if ($semanaIntensivaFilter) {
             $query->where(function ($q) use ($semanaIntensivaFilter, $periodId) {
                 $q->where('semana_intensiva_id', $semanaIntensivaFilter)
-                  ->orWhereHas('assignments', function ($subQ) use ($semanaIntensivaFilter, $periodId) {
-                      $subQ->where('semana_intensiva_id', $semanaIntensivaFilter)
-                           ->where('period_id', $periodId)
-                           ->where('is_active', true);
-                  });
+                    ->orWhereHas('assignments', function ($subQ) use ($semanaIntensivaFilter, $periodId) {
+                        $subQ->where('semana_intensiva_id', $semanaIntensivaFilter)
+                            ->where('period_id', $periodId)
+                            ->where('is_active', true);
+                    });
             });
         }
 
@@ -492,7 +494,7 @@ class StudentAssignmentController extends Controller
             $periodCost = $student->period ? $student->period->price : 0;
             $totalPaid = $student->transactions->sum('amount');
             $student->current_debt = $periodCost - $totalPaid;
-            
+
             // Add information about assignments in this specific period
             $student->period_assignments = $student->assignments()
                 ->with(['grupo', 'semanaIntensiva', 'carrera'])
@@ -511,7 +513,7 @@ class StudentAssignmentController extends Controller
     {
         try {
             $student = $assignment->student;
-            
+
             if (!$student) {
                 Log::warning('Student not found for assignment', ['assignment_id' => $assignment->id]);
                 return;
@@ -530,7 +532,7 @@ class StudentAssignmentController extends Controller
                         'cohorttype' => ['type' => 'id', 'value' => $grupo->moodle_id],
                         'usertype' => ['type' => 'username', 'value' => (string) $student->id]
                     ];
-                    
+
                     Log::info('Preparing to add student to group cohort', [
                         'student_id' => $student->id,
                         'assignment_id' => $assignment->id,
@@ -548,7 +550,7 @@ class StudentAssignmentController extends Controller
                         'cohorttype' => ['type' => 'id', 'value' => $semanaIntensiva->moodle_id],
                         'usertype' => ['type' => 'username', 'value' => (string) $student->id]
                     ];
-                    
+
                     Log::info('Preparing to add student to semana intensiva cohort', [
                         'student_id' => $student->id,
                         'assignment_id' => $assignment->id,
@@ -581,7 +583,7 @@ class StudentAssignmentController extends Controller
             // Add to cohorts in Moodle
             if (!empty($cohortsToAdd)) {
                 $response = $this->moodleService->cohorts()->addUserToCohort($cohortsToAdd);
-                
+
                 if ($response['status'] === 'success') {
                     Log::info('Student successfully added to cohorts in Moodle', [
                         'student_id' => $student->id,
@@ -747,7 +749,7 @@ class StudentAssignmentController extends Controller
     {
         try {
             $student = $assignment->student;
-            
+
             if (!$student || !$student->moodle_id) {
                 Log::warning('Student not found or has no moodle_id for assignment removal', [
                     'assignment_id' => $assignment->id,
@@ -766,7 +768,7 @@ class StudentAssignmentController extends Controller
                         'cohortid' => $grupo->moodle_id,
                         'userid' => $student->moodle_id
                     ];
-                    
+
                     Log::info('Preparing to remove student from group cohort on assignment deletion', [
                         'student_id' => $student->id,
                         'assignment_id' => $assignment->id,
@@ -784,7 +786,7 @@ class StudentAssignmentController extends Controller
                         'cohortid' => $semanaIntensiva->moodle_id,
                         'userid' => $student->moodle_id
                     ];
-                    
+
                     Log::info('Preparing to remove student from semana intensiva cohort on assignment deletion', [
                         'student_id' => $student->id,
                         'assignment_id' => $assignment->id,
@@ -803,7 +805,7 @@ class StudentAssignmentController extends Controller
                             'cohortid' => $modulo->moodle_id,
                             'userid' => $student->moodle_id
                         ];
-                        
+
                         Log::info('Preparing to remove student from carrer modulo cohort on assignment deletion', [
                             'student_id' => $student->id,
                             'assignment_id' => $assignment->id,
@@ -818,14 +820,14 @@ class StudentAssignmentController extends Controller
             // Remove from cohorts in Moodle
             if (!empty($cohortsToRemove)) {
                 $response = $this->moodleService->cohorts()->removeUsersFromCohorts($cohortsToRemove);
-                
+
                 Log::info('Moodle response for removing user from all cohorts on assignment deletion', [
                     'student_id' => $student->id,
                     'assignment_id' => $assignment->id,
                     'cohorts_removed_payload' => $cohortsToRemove,
                     'response' => $response
                 ]);
-                
+
                 if ($response['status'] === 'success') {
                     Log::info('Student successfully removed from all cohorts in Moodle on assignment deletion', [
                         'student_id' => $student->id,
@@ -864,11 +866,11 @@ class StudentAssignmentController extends Controller
         if (!$student->moodle_id) {
             $username = (string) $student->id;
             $moodleUser = $this->moodleService->users()->getUserByUsername($username);
-            
+
             if ($moodleUser['status'] === 'success' && isset($moodleUser['data']['id'])) {
                 $student->moodle_id = $moodleUser['data']['id'];
                 $student->save();
-                
+
                 Log::info('Moodle ID fetched and saved for student', [
                     'student_id' => $student->id,
                     'moodle_id' => $student->moodle_id
@@ -879,7 +881,7 @@ class StudentAssignmentController extends Controller
                     'username' => $username,
                     'error' => $moodleUser['message'] ?? 'Unknown error'
                 ]);
-                
+
                 throw new \Exception('Failed to fetch Moodle ID for student: ' . $student->id);
             }
         }
@@ -993,8 +995,10 @@ class StudentAssignmentController extends Controller
             foreach ($courseContents as $section) {
                 if (isset($section['modules'])) {
                     foreach ($section['modules'] as $module) {
-                        if (isset($module['modname']) && 
-                            in_array($module['modname'], ['assign', 'quiz', 'forum', 'workshop'])) {
+                        if (
+                            isset($module['modname']) &&
+                            in_array($module['modname'], ['assign', 'quiz', 'forum', 'workshop'])
+                        ) {
                             $gradableActivities[] = [
                                 'id' => $module['id'],
                                 'name' => $module['name'],

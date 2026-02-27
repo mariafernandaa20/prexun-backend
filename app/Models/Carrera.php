@@ -8,7 +8,7 @@ class Carrera extends Model
 {
     protected $table = 'carreers';
     public $timestamps = false;
-    protected $fillable = ['name', 'facultad_id'];
+    protected $fillable = ['name', 'facultad_id', 'orden'];
 
     public function assignments()
     {
