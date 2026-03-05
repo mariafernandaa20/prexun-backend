@@ -14,13 +14,15 @@ class Attendance extends Model
         'present',
         'user_id',
         'attendance_time',
+        'class_marks',
         'notes'
     ];
 
     protected $casts = [
         'date' => 'date',
         'present' => 'boolean',
-        'attendance_time' => 'datetime'
+        'attendance_time' => 'datetime',
+        'class_marks' => 'array',
     ];
 
     public function student(): BelongsTo

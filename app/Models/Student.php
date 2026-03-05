@@ -200,4 +200,25 @@ class Student extends Model
     {
         return $this->belongsToMany(Tag::class, 'student_tag');
     }
+
+    public function setPhoneAttribute($value): void
+    {
+        $this->attributes['phone'] = $this->normalizePhoneDigits($value);
+    }
+
+    public function setTutorPhoneAttribute($value): void
+    {
+        $this->attributes['tutor_phone'] = $this->normalizePhoneDigits($value);
+    }
+
+    private function normalizePhoneDigits($value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $value);
+
+        return $digits !== '' ? $digits : null;
+    }
 }

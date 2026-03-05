@@ -34,6 +34,7 @@ class TransactionController extends Controller
     $dateFrom = $request->query('date_from');
     $dateTo = $request->query('date_to');
     $groupByMonth = $request->query('group_by_month', false);
+    $groupId = $request->query('group_id');
 
     $allowedSorts = ['folio', 'created_at', 'payment_date'];
     $allowedDirections = ['asc', 'desc'];
@@ -85,6 +86,12 @@ class TransactionController extends Controller
       $query->where('card_id', $card_id);
     }
 
+    if ($groupId && $groupId !== 'all') {
+      $query->whereHas('student.assignments', function ($q) use ($groupId) {
+        $q->active()->current()->where('grupo_id', $groupId);
+      });
+    }
+
     // Filtro por rango de fechas
     if ($dateFrom) {
       $query->whereDate('payment_date', '>=', $dateFrom);
@@ -100,10 +107,11 @@ class TransactionController extends Controller
             ->orderByRaw('YEAR(payment_date) ' . $sortDirection . ', MONTH(payment_date) ' . $sortDirection);
     }
 
-    $query->orderBy($sortBy, $sortDirection);
-    
-    if ($sortBy !== 'folio') {
-      $query->orderBy('folio', 'desc');
+    if ($sortBy === 'folio') {
+      $query->orderByRaw("COALESCE(folio, folio_cash, folio_transfer, folio_card, 0) {$sortDirection}");
+    } else {
+      $query->orderBy($sortBy, $sortDirection);
+      $query->orderByRaw('COALESCE(folio, folio_cash, folio_transfer, folio_card, 0) desc');
     }
 
     $transactions = $query->paginate($perPage, ['*'], 'page', $page);

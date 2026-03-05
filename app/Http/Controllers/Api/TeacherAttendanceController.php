@@ -82,11 +82,29 @@ class TeacherAttendanceController extends Controller
         }
       }
 
-      $validatedData = $request->validate([
-        'grupo_id' => 'required|exists:grupos,id',
-        'date' => 'required|date_format:Y-m-d',
-        'attendance' => 'required|array',
-      ]);
+      $isGroupedPayload = is_array($request->input('attendances'));
+
+      if ($isGroupedPayload) {
+        $request->validate([
+          'date' => 'required|date_format:Y-m-d',
+          'attendances' => 'required|array|min:1',
+          'attendances.*.grupo_id' => 'required|exists:grupos,id',
+          'attendances.*.attendance' => 'required|array',
+        ]);
+      } else {
+        $request->validate([
+          'grupo_id' => 'required|exists:grupos,id',
+          'date' => 'required|date_format:Y-m-d',
+          'attendance' => 'required|array',
+        ]);
+      }
+
+      $attendanceBatches = $isGroupedPayload
+        ? $request->input('attendances', [])
+        : [[
+          'grupo_id' => $request->input('grupo_id'),
+          'attendance' => $request->input('attendance', []),
+        ]];
 
       $attendanceCount = 0;
       $presentCount = 0;
@@ -94,57 +112,74 @@ class TeacherAttendanceController extends Controller
       $alreadyExistsCount = 0;
       $newRecordsCount = 0;
 
-      foreach ($request->attendance as $record) {
-        $studentId = $record['student_id'];
-        $isPresent = $record['present'];
-        $attendanceTime = $record['attendance_time'] ?? now()->toISOString();
-        $notes = $record['notes'] ?? null;
+      foreach ($attendanceBatches as $batch) {
+        $grupoId = $batch['grupo_id'] ?? null;
+        $records = $batch['attendance'] ?? [];
 
-        // Verificar si ya existe el registro
-        $existingAttendance = Attendance::where('student_id', $studentId)
-          ->where('grupo_id', $request->grupo_id)
-          ->where('date', $request->date)
-          ->first();
+        if (!$grupoId || !is_array($records)) {
+          continue;
+        }
 
-        if ($existingAttendance) {
-          // Si ya existe, no actualizar, solo contar como procesado
-          Log::info('Asistencia ya existente, no se actualiza', [
+        foreach ($records as $record) {
+          $studentId = $record['student_id'] ?? null;
+          $isPresent = (bool) ($record['present'] ?? false);
+          $attendanceTime = $record['attendance_time'] ?? now()->toISOString();
+          $notes = $record['notes'] ?? null;
+
+          if (!$studentId) {
+            continue;
+          }
+
+          $existingAttendance = Attendance::where('student_id', $studentId)
+            ->where('grupo_id', $grupoId)
+            ->where('date', $request->date)
+            ->first();
+
+          if ($existingAttendance) {
+            $existingAttendance->update([
+              'present' => $isPresent,
+              'attendance_time' => $attendanceTime,
+              'notes' => $notes,
+            ]);
+
+            Log::info('Asistencia existente actualizada', [
+              'attendance_id' => $existingAttendance->id,
+              'student_id' => $studentId,
+              'grupo_id' => $grupoId,
+              'fecha' => $request->date,
+              'presente_nuevo' => $isPresent
+            ]);
+
+            $attendanceCount++;
+            $alreadyExistsCount++;
+            if ($isPresent) {
+              $presentCount++;
+            } else {
+              $absentCount++;
+            }
+            continue;
+          }
+
+          $attendance = Attendance::create([
             'student_id' => $studentId,
-            'grupo_id' => $request->grupo_id,
-            'fecha' => $request->date,
-            'presente_existente' => $existingAttendance->present
+            'grupo_id' => $grupoId,
+            'date' => $request->date,
+            'present' => $isPresent,
+            'attendance_time' => $attendanceTime,
+            'notes' => $notes
           ]);
 
+          if (!$attendance) {
+            throw new \Exception('Error al guardar la asistencia para el estudiante ' . $studentId);
+          }
+
           $attendanceCount++;
-          $alreadyExistsCount++;
-          if ($existingAttendance->present) {
+          $newRecordsCount++;
+          if ($isPresent) {
             $presentCount++;
           } else {
             $absentCount++;
           }
-          continue;
-        }
-
-        // Solo crear si no existe
-        $attendance = Attendance::create([
-          'student_id' => $studentId,
-          'grupo_id' => $request->grupo_id,
-          'date' => $request->date,
-          'present' => $isPresent,
-          'attendance_time' => $attendanceTime,
-          'notes' => $notes
-        ]);
-
-        if (!$attendance) {
-          throw new \Exception('Error al guardar la asistencia para el estudiante ' . $studentId);
-        }
-
-        $attendanceCount++;
-        $newRecordsCount++;
-        if ($isPresent) {
-          $presentCount++;
-        } else {
-          $absentCount++;
         }
       }
 
@@ -153,6 +188,9 @@ class TeacherAttendanceController extends Controller
       Log::info('Asistencia procesada exitosamente', [
         'fecha' => $request->date,
         'grupo_id' => $request->grupo_id,
+        'grupos_procesados' => $isGroupedPayload
+          ? collect($attendanceBatches)->pluck('grupo_id')->values()->all()
+          : [$request->grupo_id],
         'total_estudiantes' => $attendanceCount,
         'nuevos_registros' => $newRecordsCount,
         'ya_existian' => $alreadyExistsCount,

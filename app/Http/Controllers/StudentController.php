@@ -123,7 +123,16 @@ class StudentController extends Controller
     }
 
     if ($searchPhone) {
-      $query->where('phone', 'LIKE', "%{$searchPhone}%");
+      $searchPhoneDigits = preg_replace('/\D+/', '', $searchPhone);
+      $searchLastTenDigits = substr($searchPhoneDigits, -10);
+
+      if ($searchLastTenDigits !== '') {
+        $query->where(function ($phoneQuery) use ($searchLastTenDigits) {
+          $phoneQuery
+            ->whereRaw('RIGHT(phone, 10) = ?', [$searchLastTenDigits])
+            ->orWhereRaw('RIGHT(tutor_phone, 10) = ?', [$searchLastTenDigits]);
+        });
+      }
     }
 
     if ($searchMatricula) {
