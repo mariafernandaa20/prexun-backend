@@ -380,38 +380,39 @@ class StudentController extends Controller
    */
   public function hardUpdate(Request $request)
   {
-    $validator = Validator::make($request->all(), [
-      'id' => 'required|exists:students,id',
-      'email' => 'required|email|unique:students,email,' . $request->id,
-      'firstname' => 'sometimes|string|max:255',
-      'lastname' => 'sometimes|string|max:255',
-    ]);
+      $validator = Validator::make($request->all(), [
+        'id' => 'required|exists:students,id',
+        'email' => 'required|email|unique:students,email,' . $request->id,
+        'firstname' => 'sometimes|string|max:255',
+        'lastname' => 'sometimes|string|max:255',
+        'campus_id' => 'sometimes|exists:campuses,id',
+      ]);
 
-    if ($validator->fails()) {
-      return response()->json(['errors' => $validator->errors()], 422);
-    }
-
-    try {
-      DB::beginTransaction();
-
-      $student = Student::findOrFail($request->id);
-
-      // Capture original values before update for event logging
-      $beforeData = $student->toArray();
-
-      // Update student basic info
-      $student->update($request->only(['email', 'firstname', 'lastname']));
-
-      // Capture updated values for event logging
-      $afterData = $student->fresh()->toArray();
-
-      // Get changed fields
-      $changedFields = [];
-      foreach ($request->only(['email', 'firstname', 'lastname', 'grupo_id', 'semana_intensiva_id']) as $field => $value) {
-        if ($beforeData[$field] !== $value) {
-          $changedFields[] = $field;
-        }
+      if ($validator->fails()) {
+        return response()->json(['errors' => $validator->errors()], 422);
       }
+
+      try {
+        DB::beginTransaction();
+
+        $student = Student::findOrFail($request->id);
+
+        // Capture original values before update for event logging
+        $beforeData = $student->toArray();
+
+        // Update student info
+        $student->update($request->only(['email', 'firstname', 'lastname', 'campus_id']));
+
+        // Capture updated values for event logging
+        $afterData = $student->fresh()->toArray();
+
+        // Get changed fields
+        $changedFields = [];
+        foreach ($request->only(['email', 'firstname', 'lastname', 'campus_id']) as $field => $value) {
+          if (isset($beforeData[$field]) && $beforeData[$field] != $value) {
+            $changedFields[] = $field;
+          }
+        }
 
       // Ensure student has Moodle ID
       $this->ensureStudentHasMoodleId($student);
@@ -493,7 +494,7 @@ class StudentController extends Controller
    */
   public function show(Student $student)
   {
-    return response()->json($student->load(['grupo', 'transactions', 'tags']));
+    return response()->json($student->load(['grupo', 'transactions', 'tags', 'campus']));
   }
 
   /**

@@ -166,6 +166,11 @@ class Student extends Model
     {
         return $this->belongsTo(Grupo::class, 'grupo_id');
     }
+
+    public function campus()
+    {
+        return $this->belongsTo(Campus::class, 'campus_id');
+    }
     public function semana_intensiva()
     {
         return $this->belongsTo(SemanaIntensiva::class, 'semana_intensiva_id');
