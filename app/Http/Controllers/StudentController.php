@@ -361,8 +361,8 @@ class StudentController extends Controller
         $this->sendRegistrationWhatsAppTemplate($student);
       }
 
-<<<<<<< Updated upstream
-=======
+Updated upstream
+
       // Sincronizar con Google Contacts del Plantel (Campus)
       try {
         if ($student->campus_id) {
@@ -383,7 +383,7 @@ class StudentController extends Controller
         // No detenemos el flujo completo si falla Google Contacts
       }
 
->>>>>>> Stashed changes
+ Stashed changes
       return response()->json($student, 201);
     } catch (\Exception $e) {
       DB::rollBack();
