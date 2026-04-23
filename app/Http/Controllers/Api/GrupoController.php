@@ -63,7 +63,8 @@ class GrupoController extends Controller
       'start_date' => 'sometimes|date_format:Y-m-d|nullable',
       'end_date' => 'sometimes|date_format:Y-m-d|nullable',
       'campus_ids' => 'nullable|array',
-      'campus_ids.*' => 'exists:campuses,id'
+      'campus_ids.*' => 'exists:campuses,id',
+      'contacto_prefijo' => 'boolean|sometimes'
     ]);
 
     $validated['frequency'] = json_encode($validated['frequency']);
@@ -181,13 +182,14 @@ class GrupoController extends Controller
       'start_date' => 'sometimes|date_format:Y-m-d|nullable',
       'end_date' => 'sometimes|date_format:Y-m-d|nullable',
       'campus_ids' => 'nullable|array',
-      'campus_ids.*' => 'exists:campuses,id'
+      'campus_ids.*' => 'exists:campuses,id',
+      'contacto_prefijo' => 'boolean|sometimes'
     ]);
 
     $dataToUpdate = [];
 
-    foreach (['name', 'type', 'period_id', 'capacity', 'start_time', 'end_time', 'start_date', 'end_date'] as $field) {
-      if (isset($validated[$field])) {
+    foreach (['name', 'type', 'period_id', 'capacity', 'start_time', 'end_time', 'start_date', 'end_date', 'contacto_prefijo'] as $field) {
+      if (array_key_exists($field, $validated)) {
         $dataToUpdate[$field] = $validated[$field];
       }
     }

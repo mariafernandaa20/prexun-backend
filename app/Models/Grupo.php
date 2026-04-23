@@ -17,7 +17,8 @@ class Grupo extends Model
         'end_time',
         'start_date',
         'end_date',
-        'moodle_id'
+        'moodle_id',
+        'contacto_prefijo'
     ];
 
     public function period()
@@ -34,7 +35,8 @@ class Grupo extends Model
     {
         return $this->hasMany(Student::class);
     }
-
+     
+    
     public function campuses()
     {
         return $this->belongsToMany(Campus::class, 'campus_group_pivot', 'grupo_id', 'campus_id');
@@ -99,4 +101,7 @@ class Grupo extends Model
             return $assignment->student;
         });
     }
+    protected $casts = [
+        'contacto_prefijo' => 'boolean'
+    ];
 }
